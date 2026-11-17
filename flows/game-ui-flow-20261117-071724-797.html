@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#11151d" />
+  <title>Game UI Interactive Flow</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100svh;
+      margin: 0;
+      color: #e8edf6;
+      background: #11151d;
+      font-family: Arial, "Microsoft YaHei", sans-serif;
+    }
+    .stage-shell {
+      display: grid;
+      min-height: 100svh;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      gap: 14px;
+      padding: 18px 14px;
+    }
+    header, footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+    h1 {
+      margin: 0;
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+    .transport {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    button {
+      min-height: 38px;
+      padding: 0 13px;
+      color: #edf2ff;
+      background: #212b3b;
+      border: 1px solid #3d485e;
+      border-radius: 7px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:active {
+      transform: translateY(1px);
+    }
+    .stage {
+      display: grid;
+      place-items: center;
+      gap: 10px;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .frame {
+      position: relative;
+      width: min(440px, calc((100svh - 154px) * var(--frame-ratio, 0.56)), 100%);
+      aspect-ratio: var(--frame-aspect, 455 / 891);
+      overflow: hidden;
+      background:
+        linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+        #171d28;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      background-size: 16px 16px;
+      border: 1px solid #30384b;
+      border-radius: 6px;
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.42);
+      touch-action: manipulation;
+    }
+    canvas {
+      display: block;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .flow-tabs {
+      position: relative;
+      display: grid;
+      width: min(440px, 100%);
+      min-height: 48px;
+      gap: 8px;
+      pointer-events: auto;
+    }
+    body[data-navigation="layer-hotspots"] .flow-tabs {
+      display: none;
+    }
+    body[data-navigation="layer-hotspots"] .frame {
+      cursor: pointer;
+    }
+    body[data-navigation="layer-hotspots"] footer {
+      display: none;
+    }
+    .selected-plate {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      z-index: 0;
+      border: 1px solid #1b3f5f;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #2f87ff 0%, #1d5fcb 100%);
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.45), 0 7px 18px rgba(18, 95, 220, 0.28);
+      transition: left 260ms cubic-bezier(.2,.75,.2,1), filter 180ms;
+      pointer-events: none;
+    }
+    .selected-plate.flash {
+      filter: brightness(1.25) drop-shadow(0 0 13px rgba(121, 166, 255, 0.54));
+    }
+    .flow-tab {
+      position: relative;
+      z-index: 1;
+      min-width: 0;
+      min-height: 48px;
+      padding: 0 10px;
+      overflow: hidden;
+      color: #c8d4ea;
+      background: rgba(24, 32, 46, 0.92);
+      border: 1px solid #3a465e;
+      border-radius: 8px;
+      font-size: clamp(12px, 2.8vw, 15px);
+      font-weight: 900;
+      letter-spacing: 0;
+      text-shadow: 0 2px #090c14;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .flow-tab[aria-selected="true"] {
+      color: #fff;
+      background: transparent;
+    }
+    .flow-tab span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: transform 120ms cubic-bezier(.1,.8,.4,1);
+    }
+    .flow-tab:active span {
+      transform: translateY(4px) scale(.96);
+    }
+    .tap-marker {
+      position: absolute;
+      z-index: 12;
+      width: 54px;
+      height: 54px;
+      border: 3px solid #fff;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.16);
+      box-shadow: 0 0 0 10px rgba(117, 185, 255, 0.18);
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, -50%);
+    }
+    .tap-marker.show {
+      animation: tap 540ms ease-in-out forwards;
+    }
+    @keyframes tap {
+      0% { opacity: 0; transform: translate(-50%, -60%) scale(1.15); }
+      25% { opacity: .9; }
+      50% { opacity: 1; transform: translate(-50%, -50%) scale(.75); }
+      100% { opacity: 0; transform: translate(-50%, -50%) scale(1.28); }
+    }
+    .status {
+      min-height: 20px;
+      color: #99a7be;
+      font-size: 12px;
+    }
+    @media (max-width: 720px) {
+      .stage-shell { padding: 10px; }
+      header, footer { align-items: flex-start; flex-direction: column; }
+      .frame {
+        width: min(100%, calc((100svh - 194px) * var(--frame-ratio, 0.56)));
+      }
+    }
+  </style>
+</head>
+<body data-navigation="layer-hotspots">
+  <div class="stage-shell">
+    <header>
+      <h1 id="screenTitle">交互动画预览</h1>
+      <div id="status" class="status" aria-live="polite">正在载入素材...</div>
+    </header>
+    <main class="stage">
+      <div id="flowFrame" class="frame" aria-label="点击底部页签切换界面">
+        <canvas id="stageCanvas"></canvas>
+        <div id="tapMarker" class="tap-marker" aria-hidden="true"></div>
+      </div>
+      <div id="screenTabs" class="flow-tabs" role="tablist" aria-label="界面切换按钮">
+        <div id="selectedPlate" class="selected-plate" aria-hidden="true"></div>
+      </div>
+    </main>
+    <footer>
+      <div class="transport">
+        <button id="prevBtn" type="button">上一界面</button>
+        <button id="replayBtn" type="button">重播动画</button>
+        <button id="nextBtn" type="button">下一界面</button>
+      </div>
+      <div class="status">点击画面里的指定按钮可切换界面并重播对应动画</div>
+    </footer>
+  </div>
+  <script>
+    const project = {"title":"Game UI Interactive Flow","exportedAt":"2026-11-17T07:17:24.798Z","navigationMode":"layer-hotspots","screens":[{"id":"flow-screen-1794899805995-845ea8805af7e8","assetId":"asset-1794899798412-a48a0939d5d238","name":"抽卡.psd 合成","width":750,"height":1624,"duration":2.17,"layers":[{"id":"layer-1794899799802-1cce1b46add938","name":"背景","src":"./game-ui-flow-20261117-071724-797-assets/asset-001.webp","mediaType":"image","x":0,"y":0,"width":750,"height":1624,"start":0,"duration":2.17,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.6,"fade":false,"pop":false,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-61c884a0a5749","name":"组 83","src":"./game-ui-flow-20261117-071724-797-assets/asset-002.webp","mediaType":"image","x":-639,"y":-247,"width":1750,"height":1883,"start":0,"duration":2.17,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.6,"fade":false,"pop":false,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-e554bcf02a007","name":"智能拆分卡牌 01","src":"./game-ui-flow-20261117-071724-797-assets/asset-003.webp","mediaType":"image","x":167,"y":161,"width":192,"height":266,"start":0.62,"duration":1.5499999999999998,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":263,"transformOriginY":294,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-b3d26df39fced8","name":"智能拆分卡牌 02","src":"./game-ui-flow-20261117-071724-797-assets/asset-004.webp","mediaType":"image","x":393,"y":161,"width":192,"height":266,"start":0.69,"duration":1.48,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":489,"transformOriginY":294,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-568ab294e5be1","name":"智能拆分卡牌 03","src":"./game-ui-flow-20261117-071724-797-assets/asset-005.webp","mediaType":"image","x":50,"y":464,"width":192,"height":266,"start":0.76,"duration":1.41,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":146,"transformOriginY":597,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-ac081837815f8","name":"智能拆分卡牌 04","src":"./game-ui-flow-20261117-071724-797-assets/asset-006.webp","mediaType":"image","x":279,"y":464,"width":192,"height":266,"start":0.83,"duration":1.3399999999999999,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":375,"transformOriginY":597,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-832a1b18b4c63","name":"智能拆分卡牌 05","src":"./game-ui-flow-20261117-071724-797-assets/asset-007.webp","mediaType":"image","x":508,"y":464,"width":192,"height":266,"start":0.9,"duration":1.27,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":604,"transformOriginY":597,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-c362333ccbfaf","name":"智能拆分卡牌 06","src":"./game-ui-flow-20261117-071724-797-assets/asset-008.webp","mediaType":"image","x":13,"y":742,"width":254,"height":316,"start":0.97,"duration":1.2,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":140,"transformOriginY":900,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-bb91a704dd1ac8","name":"智能拆分卡牌 07","src":"./game-ui-flow-20261117-071724-797-assets/asset-009.webp","mediaType":"image","x":279,"y":769,"width":192,"height":266,"start":1.04,"duration":1.13,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":375,"transformOriginY":902,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-931501eaf849c8","name":"智能拆分卡牌 08","src":"./game-ui-flow-20261117-071724-797-assets/asset-004.webp","mediaType":"image","x":508,"y":769,"width":192,"height":266,"start":1.11,"duration":1.0599999999999998,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":604,"transformOriginY":902,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-54f1b34826a528","name":"智能拆分卡牌 09","src":"./game-ui-flow-20261117-071724-797-assets/asset-005.webp","mediaType":"image","x":164,"y":1073,"width":192,"height":266,"start":1.18,"duration":0.99,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":260,"transformOriginY":1206,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-de5847f0e7c2a8","name":"智能拆分卡牌 10","src":"./game-ui-flow-20261117-071724-797-assets/asset-005.webp","mediaType":"image","x":393,"y":1073,"width":192,"height":266,"start":1.25,"duration":0.9199999999999999,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":489,"transformOriginY":1206,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-2561f994c0dac","name":"智能按钮 01","src":"./game-ui-flow-20261117-071724-797-assets/asset-010.webp","mediaType":"image","x":553,"y":36,"width":172,"height":58,"start":1.15,"duration":1.02,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":true,"pop":true,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-8d55d064a39388","name":"椭圆 2 拷贝","src":"./game-ui-flow-20261117-071724-797-assets/asset-011.webp","mediaType":"image","x":33,"y":1513,"width":95,"height":92,"start":0,"duration":2.17,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.6,"fade":false,"pop":false,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-b0541a40373238","name":"Heroes obtained repeatedly will be converted into fragments of ","src":"./game-ui-flow-20261117-071724-797-assets/asset-012.webp","mediaType":"image","x":79,"y":1417,"width":593,"height":54,"start":0,"duration":2.17,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.6,"fade":false,"pop":false,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-5554a1172ef14","name":"BTN","src":"./game-ui-flow-20261117-071724-797-assets/asset-013.webp","mediaType":"image","x":160,"y":1514,"width":261,"height":92,"start":1.15,"duration":1.02,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":true,"pop":true,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899799802-c38c799f1f8b4","name":"BTN 拷贝","src":"./game-ui-flow-20261117-071724-797-assets/asset-014.webp","mediaType":"image","x":453,"y":1514,"width":261,"height":92,"start":1.15,"duration":1.02,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":true,"pop":true,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}}],"hotspots":[{"id":"flow-hotspot-1794899820323-d91cb4df16029","label":"BTN","targetScreenId":"flow-screen-1794899815306-5bcc65dfffc9b","targetScreenIndex":1,"x":160,"y":1514,"width":261,"height":92},{"id":"flow-hotspot-1794899820323-2d503db8a78828","label":"BTN 拷贝","targetScreenId":"flow-screen-1794899805995-845ea8805af7e8","targetScreenIndex":0,"x":453,"y":1514,"width":261,"height":92}]},{"id":"flow-screen-1794899815306-5bcc65dfffc9b","assetId":"asset-1794899809527-27e2f52af8e038","name":"抽卡02.psd 合成","width":750,"height":1624,"duration":1.9100000000000001,"layers":[{"id":"layer-1794899810362-1fa0737339997","name":"组 83","src":"./game-ui-flow-20261117-071724-797-assets/asset-015.webp","mediaType":"image","x":-639,"y":-247,"width":1750,"height":1883,"start":0,"duration":1.91,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.6,"fade":false,"pop":false,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899810362-400145bca9a21","name":"组 86","src":"./game-ui-flow-20261117-071724-797-assets/asset-006.webp","mediaType":"image","x":279,"y":464,"width":192,"height":266,"start":0.62,"duration":1.29,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":375,"transformOriginY":597,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":false,"pop":true,"rotate":false,"flip":true,"flipAxis":"y","pulse":false}},{"id":"layer-1794899810362-e6c5e806300de8","name":"智能按钮 01","src":"./game-ui-flow-20261117-071724-797-assets/asset-010.webp","mediaType":"image","x":553,"y":36,"width":172,"height":58,"start":1.15,"duration":0.76,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":true,"pop":true,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899810362-88f79b98b42238","name":"椭圆 2 拷贝","src":"./game-ui-flow-20261117-071724-797-assets/asset-011.webp","mediaType":"image","x":33,"y":1513,"width":95,"height":92,"start":0,"duration":1.91,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.6,"fade":false,"pop":false,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899810362-9d4988b02300a","name":"Heroes obtained repeatedly will be converted into fragments of ","src":"./game-ui-flow-20261117-071724-797-assets/asset-012.webp","mediaType":"image","x":79,"y":1417,"width":593,"height":54,"start":0,"duration":1.91,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.6,"fade":false,"pop":false,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899810362-d18bb64dd0d0d","name":"BTN","src":"./game-ui-flow-20261117-071724-797-assets/asset-013.webp","mediaType":"image","x":160,"y":1514,"width":261,"height":92,"start":1.15,"duration":0.76,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":true,"pop":true,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}},{"id":"layer-1794899810362-fc30bf863fe43","name":"BTN 拷贝","src":"./game-ui-flow-20261117-071724-797-assets/asset-014.webp","mediaType":"image","x":453,"y":1514,"width":261,"height":92,"start":1.15,"duration":0.76,"scale":1,"opacity":1,"visible":true,"holdAfterEnd":true,"blendMode":"norm","clipping":0,"transformOriginX":null,"transformOriginY":null,"animation":{"entrance":"none","direction":"left","inDuration":0.26,"fade":true,"pop":true,"rotate":false,"flip":false,"flipAxis":"y","pulse":false}}],"hotspots":[{"id":"flow-hotspot-1794899820323-cfaa391a58aa88","label":"BTN 拷贝","targetScreenId":"flow-screen-1794899805995-845ea8805af7e8","targetScreenIndex":0,"x":453,"y":1514,"width":261,"height":92},{"id":"flow-hotspot-1794899826939-466dfc2265f768","label":"BTN","targetScreenId":"flow-screen-1794899805995-845ea8805af7e8","targetScreenIndex":0,"x":160,"y":1514,"width":261,"height":92}]}],"optimization":{"imageCount":24,"optimizedCount":24,"beforeBytes":4672832,"afterBytes":339540,"savedBytes":4333292},"assetMode":"external","assetCount":15};
+    const canvas = document.getElementById("stageCanvas");
+    const ctx = canvas.getContext("2d");
+    const frame = document.getElementById("flowFrame");
+    const title = document.getElementById("screenTitle");
+    const tabs = document.getElementById("screenTabs");
+    const plate = document.getElementById("selectedPlate");
+    const tapMarker = document.getElementById("tapMarker");
+    const status = document.getElementById("status");
+    const mediaCache = new Map();
+    const useLayerHotspots = project.navigationMode === "layer-hotspots";
+    let activeIndex = 0;
+    let startedAt = performance.now();
+    let switchedAt = 0;
+    let renderStarted = false;
+    const screenPreloadTasks = new Map();
+
+    function clamp(value, min = 0, max = 1) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function easeOutCubic(value) {
+      const t = clamp(value);
+      return 1 - Math.pow(1 - t, 3);
+    }
+
+    function easeOutBack(value) {
+      const t = clamp(value);
+      const c1 = 1.70158;
+      const c3 = c1 + 1;
+      return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+    }
+
+    function canvasBlendMode(psdBlendMode = "norm") {
+      const key = String(psdBlendMode || "norm").trim();
+      const modes = {
+        norm: "source-over",
+        pass: "source-over",
+        diss: "source-over",
+        mul: "multiply",
+        scrn: "screen",
+        over: "overlay",
+        sLit: "soft-light",
+        hLit: "hard-light",
+        diff: "difference",
+        smud: "exclusion",
+        dark: "darken",
+        lite: "lighten",
+        div: "color-dodge",
+        idiv: "color-burn",
+        hue: "hue",
+        sat: "saturation",
+        colr: "color",
+        lum: "luminosity",
+      };
+      return modes[key] || "source-over";
+    }
+
+    function resolveLayerEntranceDirection(layer, direction, screen) {
+      if (!["outside", "auto", "nearest"].includes(direction)) return direction;
+      const centerX = layer.x + layer.width / 2;
+      const centerY = layer.y + layer.height / 2;
+      const distances = [
+        ["left", centerX],
+        ["right", screen.width - centerX],
+        ["top", centerY],
+        ["bottom", screen.height - centerY],
+      ];
+      distances.sort((a, b) => a[1] - b[1]);
+      return distances[0][0];
+    }
+
+    function getLayerAnimationState(layer, time, screen) {
+      const localTime = time - layer.start;
+      const inDuration = Math.max(0.01, layer.animation?.inDuration || 0.6);
+      const progress = easeOutCubic(localTime / inDuration);
+      const rawProgress = clamp(localTime / inDuration);
+      let x = layer.x;
+      let y = layer.y;
+      let alpha = layer.opacity ?? 1;
+      let scale = layer.scale ?? 1;
+      let scaleX = 1;
+      let scaleY = 1;
+      let rotation = 0;
+      const animation = layer.animation || {};
+
+      if (animation.entrance === "slide" && rawProgress < 1) {
+        const direction = resolveLayerEntranceDirection(layer, animation.direction, screen);
+        const distanceX = screen.width * 0.7;
+        const distanceY = screen.height * 0.7;
+        if (direction === "left") x -= (1 - progress) * distanceX;
+        if (direction === "right") x += (1 - progress) * distanceX;
+        if (direction === "top") y -= (1 - progress) * distanceY;
+        if (direction === "bottom") y += (1 - progress) * distanceY;
+      }
+
+      if (animation.fade && rawProgress < 1) alpha *= animation.flip ? 0.38 + rawProgress * 0.62 : rawProgress;
+      if (animation.pop && rawProgress < 1) scale *= 0.68 + 0.32 * easeOutBack(rawProgress);
+      if (animation.rotate && rawProgress < 1) rotation = (1 - progress) * -0.22;
+      if (animation.flip && rawProgress < 1) {
+        const flipPeak = Math.sin(rawProgress * Math.PI);
+        const flipWave = Math.abs(Math.cos(rawProgress * Math.PI));
+        const flipScale = Math.max(0.035, flipWave);
+        scale *= 0.94 + 0.08 * flipPeak;
+        rotation += (0.5 - rawProgress) * 0.16 * flipPeak;
+        if (animation.flipAxis === "x") {
+          scaleY *= flipScale;
+          scaleX *= 1 + flipPeak * 0.06;
+        } else {
+          scaleX *= flipScale;
+          scaleY *= 1 + flipPeak * 0.06;
+        }
+      }
+      if (animation.pulse && rawProgress >= 1) scale *= 1 + Math.sin(localTime * Math.PI * 2) * 0.025;
+
+      return {
+        x,
+        y,
+        alpha: clamp(alpha),
+        scale,
+        scaleX,
+        scaleY,
+        rotation,
+        flipProgress: animation.flip && rawProgress < 1 ? rawProgress : null,
+        originX: animation.flip ? layer.transformOriginX : null,
+        originY: animation.flip ? layer.transformOriginY : null,
+      };
+    }
+
+    function drawFlipMotionCue(context, layer, animated) {
+      if (!Number.isFinite(animated.flipProgress)) return;
+      const peak = Math.sin(animated.flipProgress * Math.PI);
+      if (peak <= 0.04) return;
+      const scale = animated.scale || 1;
+      const scaleX = Math.abs(animated.scaleX || 1);
+      const scaleY = Math.abs(animated.scaleY || 1);
+      const width = Math.max(2, layer.width * scale * scaleX);
+      const height = Math.max(2, layer.height * scale * scaleY);
+      const centerX = animated.x + layer.width / 2;
+      const centerY = animated.y + layer.height / 2;
+      const left = centerX - width / 2;
+      const top = centerY - height / 2;
+      context.save();
+      context.globalCompositeOperation = "screen";
+      context.globalAlpha = Math.min(0.42, animated.alpha * peak * 0.42);
+      context.strokeStyle = "rgba(170, 245, 255, 0.95)";
+      context.lineWidth = Math.max(1, Math.min(4, Math.max(width, height) * 0.035));
+      context.strokeRect(left, top, width, height);
+      context.fillStyle = "rgba(255, 255, 255, 0.7)";
+      if (width < height) context.fillRect(centerX - 1.2, top, 2.4, height);
+      else context.fillRect(left, centerY - 1.2, width, 2.4);
+      context.restore();
+    }
+
+    function tabName(screen, index) {
+      return (screen.name || "界面 " + (index + 1))
+        .replace(/\.psd$/i, "")
+        .replace(/\s*合成$/i, "")
+        .trim() || "界面 " + (index + 1);
+    }
+
+    function syncFrameSize(screen) {
+      const width = Math.max(1, Math.round(screen.width));
+      const height = Math.max(1, Math.round(screen.height));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      frame.style.setProperty("--frame-aspect", width + " / " + height);
+      frame.style.setProperty("--frame-ratio", String(width / height));
+    }
+
+    function createMedia(layer) {
+      if (mediaCache.has(layer.src)) {
+        const cached = mediaCache.get(layer.src);
+        return cached.promise || Promise.resolve(cached);
+      }
+      const isVideo = layer.mediaType === "video";
+      const media = isVideo ? document.createElement("video") : new Image();
+      const record = { element: media, ready: false, isVideo, promise: null };
+      record.promise = new Promise((resolve) => {
+        const done = () => {
+          record.ready = true;
+          resolve(record);
+        };
+        media.addEventListener(isVideo ? "loadeddata" : "load", done, { once: true });
+        media.addEventListener("error", () => resolve(record), { once: true });
+        if (isVideo) {
+          media.muted = true;
+          media.loop = true;
+          media.playsInline = true;
+          media.preload = "auto";
+        }
+        media.src = layer.src;
+      });
+      mediaCache.set(layer.src, record);
+      return record.promise;
+    }
+
+    function preloadScreen(index) {
+      const screen = project.screens[index];
+      if (!screen) return Promise.resolve();
+      if (!screenPreloadTasks.has(screen.id)) {
+        screenPreloadTasks.set(screen.id, Promise.all(screen.layers.map(createMedia)));
+      }
+      return screenPreloadTasks.get(screen.id);
+    }
+
+    function preloadOtherScreens() {
+      project.screens.forEach((screen, index) => {
+        if (index !== activeIndex) {
+          setTimeout(() => preloadScreen(index), 120 + index * 90);
+        }
+      });
+    }
+
+    function drawScreen(screen, time, now) {
+      syncFrameSize(screen);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const gradient = ctx.createLinearGradient(0, 0, 0, screen.height);
+      gradient.addColorStop(0, "#151918");
+      gradient.addColorStop(1, "#101315");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, screen.width, screen.height);
+
+      screen.layers.forEach((layer) => {
+        if (!layer.visible) return;
+        if (time < layer.start) return;
+        if (time > layer.start + layer.duration && layer.holdAfterEnd === false) return;
+        const media = mediaCache.get(layer.src);
+        if (!media?.ready) return;
+        const element = media.element;
+        if (media.isVideo) element.play().catch(() => {});
+
+        const animated = getLayerAnimationState(layer, time, screen);
+        const centerX = animated.x + layer.width / 2;
+        const centerY = animated.y + layer.height / 2;
+        ctx.save();
+        ctx.globalAlpha = animated.alpha;
+        ctx.globalCompositeOperation = canvasBlendMode(layer.blendMode);
+        if (Number.isFinite(animated.originX) && Number.isFinite(animated.originY)) {
+          const originX = animated.originX + (animated.x - layer.x);
+          const originY = animated.originY + (animated.y - layer.y);
+          ctx.translate(originX, originY);
+          ctx.rotate(animated.rotation);
+          ctx.scale(animated.scale * animated.scaleX, animated.scale * animated.scaleY);
+          ctx.drawImage(element, animated.x - originX, animated.y - originY, layer.width, layer.height);
+        } else {
+          ctx.translate(centerX, centerY);
+          ctx.rotate(animated.rotation);
+          ctx.scale(animated.scale * animated.scaleX, animated.scale * animated.scaleY);
+          ctx.drawImage(element, -layer.width / 2, -layer.height / 2, layer.width, layer.height);
+        }
+        ctx.restore();
+        drawFlipMotionCue(ctx, layer, animated);
+      });
+
+      const flashProgress = clamp((now - switchedAt) / 320);
+      if (flashProgress < 1) {
+        ctx.save();
+        ctx.globalAlpha = (1 - flashProgress) * 0.22;
+        ctx.fillStyle = "#74d8ff";
+        ctx.fillRect(0, 0, screen.width, screen.height);
+        ctx.restore();
+      }
+    }
+
+    function renderTabs() {
+      tabs.querySelectorAll(".flow-tab").forEach((button) => button.remove());
+      if (useLayerHotspots) {
+        tabs.hidden = true;
+        return;
+      }
+      tabs.hidden = false;
+      const count = Math.max(1, project.screens.length);
+      const gap = 8;
+      tabs.style.gridTemplateColumns = "repeat(" + count + ", minmax(0, 1fr))";
+      plate.style.width = "calc((100% - " + gap * (count - 1) + "px) / " + count + ")";
+      plate.style.left = "calc(" + activeIndex + " * ((100% - " + gap * (count - 1) + "px) / " + count + " + " + gap + "px))";
+      plate.classList.remove("flash");
+      void plate.offsetWidth;
+      plate.classList.add("flash");
+      project.screens.forEach((screen, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "flow-tab";
+        button.setAttribute("role", "tab");
+        button.setAttribute("aria-selected", String(index === activeIndex));
+        const label = document.createElement("span");
+        label.textContent = tabName(screen, index);
+        button.appendChild(label);
+        button.addEventListener("click", () => {
+          const rect = frame.getBoundingClientRect();
+          showTap(((index + 0.5) / project.screens.length) * rect.width, rect.height * 0.92);
+          switchScreen(index);
+        });
+        tabs.appendChild(button);
+      });
+    }
+
+    function showTap(x, y) {
+      tapMarker.style.left = x + "px";
+      tapMarker.style.top = y + "px";
+      tapMarker.classList.remove("show");
+      void tapMarker.offsetWidth;
+      tapMarker.classList.add("show");
+    }
+
+    function restartVideos(screen) {
+      screen.layers.forEach((layer) => {
+        const media = mediaCache.get(layer.src);
+        if (!media?.isVideo || !media.ready) return;
+        try {
+          media.element.currentTime = 0;
+          media.element.play().catch(() => {});
+        } catch {}
+      });
+    }
+
+    function switchScreen(index) {
+      activeIndex = (index + project.screens.length) % project.screens.length;
+      const screen = project.screens[activeIndex];
+      startedAt = performance.now();
+      switchedAt = startedAt;
+      title.textContent = screen.name || "交互动画预览";
+      syncFrameSize(screen);
+      renderTabs();
+      status.textContent = "正在载入当前界面...";
+      preloadScreen(activeIndex).then(() => {
+        restartVideos(screen);
+        status.textContent = "当前界面已载入";
+      });
+    }
+
+    function findScreenHotspot(screen, x, y) {
+      const hotspots = [...(screen.hotspots || [])].reverse();
+      return hotspots.find((hotspot) =>
+        x >= hotspot.x &&
+        x <= hotspot.x + hotspot.width &&
+        y >= hotspot.y &&
+        y <= hotspot.y + hotspot.height
+      ) || null;
+    }
+
+    function tick(now) {
+      const screen = project.screens[activeIndex];
+      const time = Math.max(0, (now - startedAt) / 1000);
+      drawScreen(screen, time, now);
+      status.textContent = (activeIndex + 1) + " / " + project.screens.length + " · " + time.toFixed(1) + "s";
+      requestAnimationFrame(tick);
+    }
+
+    async function boot() {
+      status.textContent = "正在载入首个界面...";
+      await preloadScreen(0);
+      status.textContent = "首个界面已载入，其他界面后台加载中";
+      frame.addEventListener("click", (event) => {
+        if (event.target.closest("button")) return;
+        const rect = frame.getBoundingClientRect();
+        const localX = event.clientX - rect.left;
+        const localY = event.clientY - rect.top;
+        if (useLayerHotspots) {
+          const screen = project.screens[activeIndex];
+          const canvasX = (localX / rect.width) * screen.width;
+          const canvasY = (localY / rect.height) * screen.height;
+          const hotspot = findScreenHotspot(screen, canvasX, canvasY);
+          if (!hotspot) return;
+          showTap(localX, localY);
+          switchScreen(hotspot.targetScreenIndex);
+          return;
+        }
+        const yRatio = localY / rect.height;
+        if (yRatio < 0.82) return;
+        const nextIndex = clamp(Math.floor((localX / rect.width) * project.screens.length), 0, project.screens.length - 1);
+        showTap(localX, localY);
+        switchScreen(nextIndex);
+      });
+      document.getElementById("prevBtn").addEventListener("click", () => switchScreen(activeIndex - 1));
+      document.getElementById("nextBtn").addEventListener("click", () => switchScreen(activeIndex + 1));
+      document.getElementById("replayBtn").addEventListener("click", () => switchScreen(activeIndex));
+      switchScreen(0);
+      if (!renderStarted) {
+        renderStarted = true;
+        requestAnimationFrame(tick);
+      }
+      preloadOtherScreens();
+    }
+
+    boot();
+  </script>
+</body>
+</html>
